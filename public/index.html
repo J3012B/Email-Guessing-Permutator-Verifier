@@ -366,21 +366,33 @@
       });
 
       currentEventSource.addEventListener("error", (e) => {
-        const data = e.data ? JSON.parse(e.data) : { message: "Connection error" };
-        statusBar.classList.remove("visible");
-        errorContainer.innerHTML = `<div class="error-msg">${escapeHtml(data.message)}</div>`;
-        currentEventSource.close();
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Verify Email Variations";
+        try {
+          const data = JSON.parse(e.data);
+          statusBar.classList.remove("visible");
+          errorContainer.innerHTML = `<div class="error-msg">${escapeHtml(data.message)}</div>`;
+          currentEventSource.close();
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Verify Email Variations";
+        } catch (err) {
+          console.error("Error parsing error event:", err);
+        }
       });
 
-      currentEventSource.onerror = () => {
+      currentEventSource.onerror = (e) => {
         if (currentEventSource.readyState === EventSource.CLOSED) {
           // Stream ended normally
           return;
         }
-        statusBar.classList.remove("visible");
-        errorContainer.innerHTML = `<div class="error-msg">Connection lost</div>`;
+        
+        // Give a moment for the custom "error" event to fire first
+        setTimeout(() => {
+          if (errorContainer.innerHTML === "") {
+            statusBar.classList.remove("visible");
+            errorContainer.innerHTML = `<div class="error-msg">Connection error - check console for details</div>`;
+            console.error("EventSource connection error:", e);
+          }
+        }, 100);
+        
         currentEventSource.close();
         submitBtn.disabled = false;
         submitBtn.textContent = "Verify Email Variations";

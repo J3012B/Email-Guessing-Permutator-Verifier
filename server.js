@@ -66,7 +66,16 @@ async function verifyEmail(email) {
   });
 
   if (!res.ok) {
-    throw new Error(`API returned ${res.status} for ${email}`);
+    // Provide helpful error messages for common issues
+    if (res.status === 429) {
+      throw new Error("Rate limit exceeded - too many requests");
+    } else if (res.status === 403) {
+      throw new Error("API key invalid or out of credits");
+    } else if (res.status === 401) {
+      throw new Error("API key not authorized");
+    } else {
+      throw new Error(`API error ${res.status}`);
+    }
   }
 
   return res.json();
@@ -76,15 +85,7 @@ async function verifyEmail(email) {
 app.get("/api/verify-stream", async (req, res) => {
   const { firstName, lastName, domain } = req.query;
 
-  if (!firstName || !lastName || !domain) {
-    return res.status(400).json({ error: "firstName, lastName, and domain are required" });
-  }
-
-  if (!API_KEY || API_KEY === "YOUR_API_KEY_HERE") {
-    return res.status(500).json({ error: "API key not configured. Please set APILAYER_API_KEY in .env" });
-  }
-
-  // Set up SSE
+  // Set up SSE headers first
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -92,6 +93,17 @@ app.get("/api/verify-stream", async (req, res) => {
   const sendEvent = (event, data) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
+
+  // Validation errors sent as SSE events
+  if (!firstName || !lastName || !domain) {
+    sendEvent("error", { message: "firstName, lastName, and domain are required" });
+    return res.end();
+  }
+
+  if (!API_KEY || API_KEY === "YOUR_API_KEY_HERE") {
+    sendEvent("error", { message: "API key not configured. Please set APILAYER_API_KEY in .env" });
+    return res.end();
+  }
 
   const { tier1, tier2, tier3 } = generateVariationsByTier(firstName, lastName, domain);
   const allTiers = [
