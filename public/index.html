@@ -209,6 +209,7 @@
     .badge.undeliverable { background: var(--red-bg); color: var(--red); }
     .badge.error { background: var(--red-bg); color: var(--red); }
     .badge.tier { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+    .badge.pending { background: rgba(139, 141, 151, 0.15); color: var(--text-muted); }
 
     .score {
       font-size: 0.85rem;
@@ -284,10 +285,24 @@
     const errorContainer = document.getElementById("errorContainer");
     const resultsContainer = document.getElementById("resultsContainer");
 
+    let currentEventSource = null;
+    let results = {};
+    let totalApiCalls = 0;
+    let deliverableCount = 0;
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      
+      // Close any existing connection
+      if (currentEventSource) {
+        currentEventSource.close();
+      }
+
       errorContainer.innerHTML = "";
       resultsContainer.innerHTML = "";
+      results = {};
+      totalApiCalls = 0;
+      deliverableCount = 0;
 
       const firstName = document.getElementById("firstName").value.trim();
       const lastName = document.getElementById("lastName").value.trim();
@@ -300,71 +315,155 @@
       submitBtn.disabled = true;
       submitBtn.textContent = "Verifying...";
       statusBar.classList.add("visible");
-      statusText.textContent = "Sending variations for verification...";
+      statusText.textContent = "Initializing...";
 
-      try {
-        const res = await fetch("/api/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ firstName, lastName, domain }),
-        });
+      const url = `/api/verify-stream?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&domain=${encodeURIComponent(domain)}`;
+      currentEventSource = new EventSource(url);
 
-        const data = await res.json();
+      currentEventSource.addEventListener("init", (e) => {
+        const data = JSON.parse(e.data);
+        statusText.textContent = `Checking ${data.variations.length} variations...`;
+        initializeResults(data.variations);
+      });
 
-        if (!res.ok) {
-          throw new Error(data.error || "Something went wrong");
+      currentEventSource.addEventListener("tier-start", (e) => {
+        const data = JSON.parse(e.data);
+        statusText.textContent = `Tier ${data.tier}: ${data.name} (${data.count} variations)`;
+      });
+
+      currentEventSource.addEventListener("result", (e) => {
+        const data = JSON.parse(e.data);
+        updateResult(data);
+      });
+
+      currentEventSource.addEventListener("tier-complete", (e) => {
+        const data = JSON.parse(e.data);
+        if (data.deliverable > 0) {
+          statusText.textContent = `✓ Tier ${data.tier} complete - Found ${data.deliverable} deliverable!`;
+        } else {
+          statusText.textContent = `Tier ${data.tier} complete - No deliverable found`;
         }
+      });
 
-        statusBar.classList.remove("visible");
-        renderResults(data.results, data.apiCallsUsed);
-      } catch (err) {
-        statusBar.classList.remove("visible");
-        errorContainer.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
-      } finally {
+      currentEventSource.addEventListener("complete", (e) => {
+        const data = JSON.parse(e.data);
+        totalApiCalls = data.apiCallsUsed;
+        
+        let message = `✓ Complete - ${deliverableCount} deliverable`;
+        if (data.apiCallsSaved > 0) {
+          message += ` · Saved ${data.apiCallsSaved} API calls!`;
+        }
+        statusText.textContent = message;
+        
+        setTimeout(() => {
+          statusBar.classList.remove("visible");
+        }, 3000);
+
+        updateHeader();
+        currentEventSource.close();
         submitBtn.disabled = false;
         submitBtn.textContent = "Verify Email Variations";
-      }
+      });
+
+      currentEventSource.addEventListener("error", (e) => {
+        const data = e.data ? JSON.parse(e.data) : { message: "Connection error" };
+        statusBar.classList.remove("visible");
+        errorContainer.innerHTML = `<div class="error-msg">${escapeHtml(data.message)}</div>`;
+        currentEventSource.close();
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Verify Email Variations";
+      });
+
+      currentEventSource.onerror = () => {
+        if (currentEventSource.readyState === EventSource.CLOSED) {
+          // Stream ended normally
+          return;
+        }
+        statusBar.classList.remove("visible");
+        errorContainer.innerHTML = `<div class="error-msg">Connection lost</div>`;
+        currentEventSource.close();
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Verify Email Variations";
+      };
     });
 
-    function renderResults(results, apiCallsUsed) {
-      const deliverable = results.filter((r) => !r.error && r.is_deliverable);
-      const apiInfo = apiCallsUsed ? ` · ${apiCallsUsed} API calls` : '';
+    function initializeResults(variations) {
       const header = `
         <div class="results-header">
           <h2>Results</h2>
-          <span>${deliverable.length} deliverable${apiInfo}</span>
+          <span id="resultsStats">0 deliverable · 0 checked</span>
         </div>`;
 
-      const rows = results
-        .map((r) => {
-          const tierBadge = r.tier ? `<span class="badge tier">Tier ${r.tier}</span>` : '';
-          
-          if (r.error) {
-            return `
-              <div class="result-row">
-                <span class="result-email">${escapeHtml(r.email)}</span>
-                ${tierBadge}
-                <span class="badge error">Error</span>
-                <span class="score low">--</span>
-              </div>`;
-          }
-
-          const score = r.score != null ? r.score : 0;
-          const scoreClass = score >= 0.7 ? "high" : score >= 0.4 ? "medium" : "low";
-          const badgeClass = r.is_deliverable ? "deliverable" : score >= 0.4 ? "risky" : "undeliverable";
-          const badgeLabel = r.is_deliverable ? "Deliverable" : score >= 0.4 ? "Risky" : "Undeliverable";
-
-          return `
-            <div class="result-row">
-              <span class="result-email">${escapeHtml(r.email)}</span>
-              ${tierBadge}
-              <span class="badge ${badgeClass}">${badgeLabel}</span>
-              <span class="score ${scoreClass}">${(score * 100).toFixed(0)}%</span>
-            </div>`;
-        })
-        .join("");
+      const rows = variations.map((v) => {
+        results[v.email] = { ...v, status: "pending" };
+        return createResultRow(v.email, v.tier, { status: "pending" });
+      }).join("");
 
       resultsContainer.innerHTML = `<div class="results">${header}${rows}</div>`;
+    }
+
+    function updateResult(data) {
+      results[data.email] = data;
+      
+      if (data.is_deliverable) {
+        deliverableCount++;
+      }
+
+      const row = document.querySelector(`[data-email="${escapeHtml(data.email)}"]`);
+      if (row) {
+        row.outerHTML = createResultRow(data.email, data.tier, data);
+      }
+
+      updateHeader();
+    }
+
+    function updateHeader() {
+      const stats = document.getElementById("resultsStats");
+      if (stats) {
+        const checked = Object.values(results).filter(r => r.status !== "pending").length;
+        const apiInfo = totalApiCalls > 0 ? ` · ${totalApiCalls} API calls` : '';
+        stats.textContent = `${deliverableCount} deliverable · ${checked} checked${apiInfo}`;
+      }
+    }
+
+    function createResultRow(email, tier, data) {
+      const tierBadge = `<span class="badge tier">Tier ${tier}</span>`;
+      const emailAttr = `data-email="${escapeHtml(email)}"`;
+
+      if (data.status === "pending") {
+        return `
+          <div class="result-row" ${emailAttr}>
+            <span class="result-email">${escapeHtml(email)}</span>
+            ${tierBadge}
+            <span class="badge pending">Verifying</span>
+            <span class="score">
+              <div class="spinner" style="width: 14px; height: 14px;"></div>
+            </span>
+          </div>`;
+      }
+
+      if (data.error) {
+        return `
+          <div class="result-row" ${emailAttr}>
+            <span class="result-email">${escapeHtml(email)}</span>
+            ${tierBadge}
+            <span class="badge error">Error</span>
+            <span class="score low">--</span>
+          </div>`;
+      }
+
+      const score = data.score != null ? data.score : 0;
+      const scoreClass = score >= 0.7 ? "high" : score >= 0.4 ? "medium" : "low";
+      const badgeClass = data.is_deliverable ? "deliverable" : score >= 0.4 ? "risky" : "undeliverable";
+      const badgeLabel = data.is_deliverable ? "Deliverable" : score >= 0.4 ? "Risky" : "Undeliverable";
+
+      return `
+        <div class="result-row" ${emailAttr}>
+          <span class="result-email">${escapeHtml(email)}</span>
+          ${tierBadge}
+          <span class="badge ${badgeClass}">${badgeLabel}</span>
+          <span class="score ${scoreClass}">${(score * 100).toFixed(0)}%</span>
+        </div>`;
     }
 
     function escapeHtml(str) {

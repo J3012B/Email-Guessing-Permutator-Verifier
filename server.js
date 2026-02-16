@@ -72,8 +72,9 @@ async function verifyEmail(email) {
   return res.json();
 }
 
-app.post("/api/verify", async (req, res) => {
-  const { firstName, lastName, domain } = req.body;
+// Server-Sent Events endpoint for real-time verification
+app.get("/api/verify-stream", async (req, res) => {
+  const { firstName, lastName, domain } = req.query;
 
   if (!firstName || !lastName || !domain) {
     return res.status(400).json({ error: "firstName, lastName, and domain are required" });
@@ -83,96 +84,116 @@ app.post("/api/verify", async (req, res) => {
     return res.status(500).json({ error: "API key not configured. Please set APILAYER_API_KEY in .env" });
   }
 
+  // Set up SSE
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
   const { tier1, tier2, tier3 } = generateVariationsByTier(firstName, lastName, domain);
-  const allVerified = [];
+  const allTiers = [
+    ...tier1.map(email => ({ email, tier: 1 })),
+    ...tier2.map(email => ({ email, tier: 2 })),
+    ...tier3.map(email => ({ email, tier: 3 }))
+  ];
+
   let totalApiCalls = 0;
+  const allVerified = [];
 
   console.log(`\n📧 Starting tiered verification for ${firstName} ${lastName} @ ${domain}\n`);
 
+  // Send initial list of all variations
+  sendEvent("init", { variations: allTiers });
+
   try {
-    // Tier 1: Most common formats
-    console.log(`🔍 Tier 1 (Most Common): Checking ${tier1.length} variations`);
-    tier1.forEach((email, i) => console.log(`   ${i + 1}. ${email}`));
-    
-    const tier1Results = await Promise.allSettled(tier1.map((email) => verifyEmail(email)));
-    totalApiCalls += tier1.length;
+    // Helper to verify a tier with streaming updates
+    async function verifyTier(tierEmails, tierNumber, tierName) {
+      console.log(`🔍 Tier ${tierNumber} (${tierName}): Checking ${tierEmails.length} variations`);
+      tierEmails.forEach((email, i) => console.log(`   ${i + 1}. ${email}`));
 
-    const tier1Verified = tier1Results.map((result, i) => {
-      if (result.status === "fulfilled") {
-        return { email: tier1[i], tier: 1, ...result.value };
+      sendEvent("tier-start", { tier: tierNumber, name: tierName, count: tierEmails.length });
+
+      // Verify emails one by one for real-time updates
+      const verifiedEmails = [];
+      for (const email of tierEmails) {
+        try {
+          const result = await verifyEmail(email);
+          totalApiCalls++;
+          const verified = { email, tier: tierNumber, ...result };
+          verifiedEmails.push(verified);
+          allVerified.push(verified);
+          sendEvent("result", verified);
+        } catch (err) {
+          totalApiCalls++;
+          const verified = { email, tier: tierNumber, error: err.message };
+          verifiedEmails.push(verified);
+          allVerified.push(verified);
+          sendEvent("result", verified);
+        }
       }
-      return { email: tier1[i], tier: 1, error: result.reason.message };
-    });
 
-    allVerified.push(...tier1Verified);
+      const deliverable = verifiedEmails.filter(v => v.is_deliverable);
+      console.log(`   ✓ Found ${deliverable.length} deliverable email(s)\n`);
 
-    const tier1Deliverable = tier1Verified.filter(v => v.is_deliverable);
-    console.log(`   ✓ Found ${tier1Deliverable.length} deliverable email(s)\n`);
+      sendEvent("tier-complete", { 
+        tier: tierNumber, 
+        deliverable: deliverable.length,
+        total: tierEmails.length
+      });
 
-    // If we found deliverable emails in Tier 1, stop here
-    if (tier1Deliverable.length > 0) {
+      return deliverable.length > 0;
+    }
+
+    // Tier 1
+    const foundInTier1 = await verifyTier(tier1, 1, "Most Common");
+    
+    if (foundInTier1) {
       console.log(`✅ Stopping early - found deliverable email(s) in Tier 1`);
       console.log(`💰 API calls saved: ${tier2.length + tier3.length} (only used ${totalApiCalls} instead of ${tier1.length + tier2.length + tier3.length})\n`);
       
-      allVerified.sort((a, b) => (b.score || 0) - (a.score || 0));
-      return res.json({ results: allVerified, apiCallsUsed: totalApiCalls });
+      sendEvent("complete", { 
+        apiCallsUsed: totalApiCalls,
+        apiCallsSaved: tier2.length + tier3.length,
+        stoppedAtTier: 1
+      });
+      return res.end();
     }
 
-    // Tier 2: Common alternatives
-    console.log(`🔍 Tier 2 (Common Alternatives): Checking ${tier2.length} variations`);
-    tier2.forEach((email, i) => console.log(`   ${i + 1}. ${email}`));
-
-    const tier2Results = await Promise.allSettled(tier2.map((email) => verifyEmail(email)));
-    totalApiCalls += tier2.length;
-
-    const tier2Verified = tier2Results.map((result, i) => {
-      if (result.status === "fulfilled") {
-        return { email: tier2[i], tier: 2, ...result.value };
-      }
-      return { email: tier2[i], tier: 2, error: result.reason.message };
-    });
-
-    allVerified.push(...tier2Verified);
-
-    const tier2Deliverable = tier2Verified.filter(v => v.is_deliverable);
-    console.log(`   ✓ Found ${tier2Deliverable.length} deliverable email(s)\n`);
-
-    // If we found deliverable emails in Tier 2, stop here
-    if (tier2Deliverable.length > 0) {
+    // Tier 2
+    const foundInTier2 = await verifyTier(tier2, 2, "Common Alternatives");
+    
+    if (foundInTier2) {
       console.log(`✅ Stopping early - found deliverable email(s) in Tier 2`);
       console.log(`💰 API calls saved: ${tier3.length} (only used ${totalApiCalls} instead of ${tier1.length + tier2.length + tier3.length})\n`);
       
-      allVerified.sort((a, b) => (b.score || 0) - (a.score || 0));
-      return res.json({ results: allVerified, apiCallsUsed: totalApiCalls });
+      sendEvent("complete", { 
+        apiCallsUsed: totalApiCalls,
+        apiCallsSaved: tier3.length,
+        stoppedAtTier: 2
+      });
+      return res.end();
     }
 
-    // Tier 3: Less common formats
-    console.log(`🔍 Tier 3 (Less Common): Checking ${tier3.length} variations`);
-    tier3.forEach((email, i) => console.log(`   ${i + 1}. ${email}`));
-
-    const tier3Results = await Promise.allSettled(tier3.map((email) => verifyEmail(email)));
-    totalApiCalls += tier3.length;
-
-    const tier3Verified = tier3Results.map((result, i) => {
-      if (result.status === "fulfilled") {
-        return { email: tier3[i], tier: 3, ...result.value };
-      }
-      return { email: tier3[i], tier: 3, error: result.reason.message };
-    });
-
-    allVerified.push(...tier3Verified);
-
-    const tier3Deliverable = tier3Verified.filter(v => v.is_deliverable);
-    console.log(`   ✓ Found ${tier3Deliverable.length} deliverable email(s)\n`);
+    // Tier 3
+    await verifyTier(tier3, 3, "Less Common");
 
     const totalDeliverable = allVerified.filter(v => v.is_deliverable).length;
     const totalErrors = allVerified.filter(v => v.error).length;
     console.log(`✅ Verification complete: ${totalDeliverable} deliverable, ${totalErrors} errors, ${totalApiCalls} API calls\n`);
 
-    allVerified.sort((a, b) => (b.score || 0) - (a.score || 0));
-    return res.json({ results: allVerified, apiCallsUsed: totalApiCalls });
+    sendEvent("complete", { 
+      apiCallsUsed: totalApiCalls,
+      apiCallsSaved: 0,
+      stoppedAtTier: 3
+    });
+    
+    res.end();
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    sendEvent("error", { message: err.message });
+    res.end();
   }
 });
 

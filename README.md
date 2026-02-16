@@ -4,11 +4,12 @@ A smart email verification tool that discovers and validates probable email addr
 
 ## Features
 
+- **Real-time Streaming** - See results instantly as each verification completes
 - **Tiered Verification** - Saves API costs by checking most common formats first
 - **Smart Early Stopping** - Stops verification once deliverable emails are found
 - **28 Email Variations** - Tests all probable email format combinations
-- **Real-time Validation** - Uses APILayer Email Verification API
-- **Beautiful UI** - Modern, dark-themed interface with real-time results
+- **Live Progress Updates** - Watch verification happen in real-time with visual feedback
+- **Beautiful UI** - Modern, dark-themed interface with instant updates
 
 ## How It Works
 
@@ -58,10 +59,23 @@ npm start
 
 ## Usage
 
-1. Enter the person's first name, last name, and company domain
+1. Enter the person's first name, last name, and company domain (accepts full URLs - automatically extracts domain)
 2. Click "Verify Email Variations"
-3. The system will check tier by tier, stopping early when deliverable emails are found
-4. Results are sorted by deliverability score (highest first)
+3. Watch in real-time as:
+   - All variations appear instantly with "Verifying" status
+   - Each email updates to show results as verification completes
+   - Progress counter updates live
+   - Tier completion messages appear
+4. The system checks tier by tier, stopping early when deliverable emails are found
+5. See exactly how many API calls were used and saved
+
+### Real-time Updates
+
+The app uses **Server-Sent Events (SSE)** to stream results as they happen:
+- All 28 variations appear immediately with pending status
+- Each row updates the moment its verification completes
+- No waiting for all checks to finish - see deliverable emails instantly
+- Live progress tracking shows exactly what's happening
 
 ## API Response Fields
 
