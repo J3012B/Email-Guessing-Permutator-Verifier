@@ -1,0 +1,19 @@
+{
+  "name": "outreach-email-verifier",
+  "version": "1.0.0",
+  "description": "Verify probable email variations for outreach",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "lint": "npx eslint . --ext .js --ignore-pattern node_modules"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.0"
+  }
+}
