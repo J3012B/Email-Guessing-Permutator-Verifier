@@ -176,7 +176,7 @@
 
     .result-row {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto auto auto;
       align-items: center;
       gap: 12px;
       padding: 14px 16px;
@@ -208,6 +208,7 @@
     .badge.risky { background: var(--yellow-bg); color: var(--yellow); }
     .badge.undeliverable { background: var(--red-bg); color: var(--red); }
     .badge.error { background: var(--red-bg); color: var(--red); }
+    .badge.tier { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
 
     .score {
       font-size: 0.85rem;
@@ -236,6 +237,7 @@
       .form-group.full { grid-column: 1; }
       .btn { grid-column: 1; }
       .result-row { grid-template-columns: 1fr auto; }
+      .badge.tier { display: none; }
       .score { display: none; }
     }
   </style>
@@ -314,7 +316,7 @@
         }
 
         statusBar.classList.remove("visible");
-        renderResults(data.results);
+        renderResults(data.results, data.apiCallsUsed);
       } catch (err) {
         statusBar.classList.remove("visible");
         errorContainer.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
@@ -324,20 +326,24 @@
       }
     });
 
-    function renderResults(results) {
-      const deliverable = results.filter((r) => !r.error);
+    function renderResults(results, apiCallsUsed) {
+      const deliverable = results.filter((r) => !r.error && r.is_deliverable);
+      const apiInfo = apiCallsUsed ? ` · ${apiCallsUsed} API calls` : '';
       const header = `
         <div class="results-header">
           <h2>Results</h2>
-          <span>${deliverable.length} of ${results.length} checked</span>
+          <span>${deliverable.length} deliverable${apiInfo}</span>
         </div>`;
 
       const rows = results
         .map((r) => {
+          const tierBadge = r.tier ? `<span class="badge tier">Tier ${r.tier}</span>` : '';
+          
           if (r.error) {
             return `
               <div class="result-row">
                 <span class="result-email">${escapeHtml(r.email)}</span>
+                ${tierBadge}
                 <span class="badge error">Error</span>
                 <span class="score low">--</span>
               </div>`;
@@ -351,6 +357,7 @@
           return `
             <div class="result-row">
               <span class="result-email">${escapeHtml(r.email)}</span>
+              ${tierBadge}
               <span class="badge ${badgeClass}">${badgeLabel}</span>
               <span class="score ${scoreClass}">${(score * 100).toFixed(0)}%</span>
             </div>`;
