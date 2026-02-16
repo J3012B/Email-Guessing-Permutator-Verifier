@@ -281,6 +281,24 @@
     .badge.error { background: var(--red-bg); color: var(--red); }
     .badge.tier { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
     .badge.pending { background: rgba(139, 141, 151, 0.15); color: var(--text-muted); }
+    .badge.skipped { background: rgba(139, 141, 151, 0.1); color: var(--text-muted); }
+    
+    .check-btn {
+      padding: 4px 10px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    
+    .check-btn:hover { background: var(--accent-hover); }
+    .check-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .score {
       font-size: 0.85rem;
@@ -420,6 +438,17 @@
         const data = JSON.parse(e.data);
         totalApiCalls = data.apiCallsUsed;
         
+        // Mark all remaining pending items as skipped
+        Object.keys(results).forEach(email => {
+          if (results[email].status === "pending") {
+            results[email].status = "skipped";
+            const row = document.querySelector(`[data-email="${escapeHtml(email)}"]`);
+            if (row) {
+              row.outerHTML = createResultRow(email, results[email].tier, results[email]);
+            }
+          }
+        });
+        
         let message = `✓ Complete - ${deliverableCount} deliverable`;
         if (data.apiCallsSaved > 0) {
           message += ` · Saved ${data.apiCallsSaved} API calls!`;
@@ -503,9 +532,11 @@
     function updateHeader() {
       const stats = document.getElementById("resultsStats");
       if (stats) {
-        const checked = Object.values(results).filter(r => r.status !== "pending").length;
+        const checked = Object.values(results).filter(r => r.status !== "pending" && r.status !== "skipped").length;
+        const skipped = Object.values(results).filter(r => r.status === "skipped").length;
         const apiInfo = totalApiCalls > 0 ? ` · ${totalApiCalls} API calls` : '';
-        stats.textContent = `${deliverableCount} deliverable · ${checked} checked${apiInfo}`;
+        const skippedInfo = skipped > 0 ? ` · ${skipped} skipped` : '';
+        stats.textContent = `${deliverableCount} deliverable · ${checked} checked${skippedInfo}${apiInfo}`;
       }
     }
 
@@ -516,6 +547,24 @@
           <div class="tooltip-row">
             <span class="tooltip-key">Status:</span>
             <span class="tooltip-value">Waiting for API response...</span>
+          </div>
+        </div>`;
+      }
+
+      if (data.status === "skipped") {
+        return `<div class="result-tooltip">
+          <div class="tooltip-title">Skipped Verification</div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Reason:</span>
+            <span class="tooltip-value">Deliverable email found in earlier tier</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Tier:</span>
+            <span class="tooltip-value">${data.tier}</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Action:</span>
+            <span class="tooltip-value">Click "Check" to verify manually</span>
           </div>
         </div>`;
       }
@@ -606,6 +655,17 @@
           </div>`;
       }
 
+      if (data.status === "skipped") {
+        return `
+          <div class="result-row" ${emailAttr}>
+            ${tooltip}
+            <span class="result-email">${escapeHtml(email)}</span>
+            ${tierBadge}
+            <span class="badge skipped">Not Checked</span>
+            <button class="check-btn" onclick="checkSingleEmail('${escapeHtml(email)}')">Check</button>
+          </div>`;
+      }
+
       if (data.error) {
         return `
           <div class="result-row" ${emailAttr}>
@@ -630,6 +690,56 @@
           <span class="badge ${badgeClass}">${badgeLabel}</span>
           <span class="score ${scoreClass}">${(score * 100).toFixed(0)}%</span>
         </div>`;
+    }
+
+    async function checkSingleEmail(email) {
+      const emailData = results[email];
+      if (!emailData) return;
+
+      // Update to pending state
+      emailData.status = "pending";
+      const row = document.querySelector(`[data-email="${escapeHtml(email)}"]`);
+      if (row) {
+        row.outerHTML = createResultRow(email, emailData.tier, emailData);
+      }
+
+      try {
+        const res = await fetch(`/api/verify-single?email=${encodeURIComponent(email)}`, {
+          method: "GET"
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Verification failed");
+        }
+
+        const verified = { email, tier: emailData.tier, ...data };
+        
+        results[email] = verified;
+        if (verified.is_deliverable) {
+          deliverableCount++;
+        }
+        totalApiCalls++;
+
+        const updatedRow = document.querySelector(`[data-email="${escapeHtml(email)}"]`);
+        if (updatedRow) {
+          updatedRow.outerHTML = createResultRow(email, emailData.tier, verified);
+        }
+        
+        updateHeader();
+      } catch (err) {
+        const verified = { email, tier: emailData.tier, error: err.message };
+        results[email] = verified;
+        totalApiCalls++;
+
+        const updatedRow = document.querySelector(`[data-email="${escapeHtml(email)}"]`);
+        if (updatedRow) {
+          updatedRow.outerHTML = createResultRow(email, emailData.tier, verified);
+        }
+        
+        updateHeader();
+      }
     }
 
     function escapeHtml(str) {

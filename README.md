@@ -7,8 +7,10 @@ A smart email verification tool that discovers and validates probable email addr
 - **Real-time Streaming** - See results instantly as each verification completes
 - **Tiered Verification** - Saves API costs by checking most common formats first
 - **Smart Early Stopping** - Stops verification once deliverable emails are found
+- **Manual Verification** - Check skipped variations individually if needed
 - **28 Email Variations** - Tests all probable email format combinations
 - **Live Progress Updates** - Watch verification happen in real-time with visual feedback
+- **Detailed Tooltips** - Hover over any result to see full API response details
 - **Beautiful UI** - Modern, dark-themed interface with instant updates
 
 ## How It Works
@@ -76,6 +78,16 @@ The app uses **Server-Sent Events (SSE)** to stream results as they happen:
 - Each row updates the moment its verification completes
 - No waiting for all checks to finish - see deliverable emails instantly
 - Live progress tracking shows exactly what's happening
+
+### Smart Early Stopping
+
+When a deliverable email is found in an earlier tier:
+- Verification stops immediately to save API costs
+- Remaining unchecked variations show "Not Checked" status
+- Click the **"Check"** button on any skipped variation to verify it manually
+- Hover over any result to see detailed API response information
+
+This gives you full control: save costs with automatic stopping, but still verify any specific variation you're curious about.
 
 ## API Response Fields
 

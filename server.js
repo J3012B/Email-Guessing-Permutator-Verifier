@@ -81,6 +81,26 @@ async function verifyEmail(email) {
   return res.json();
 }
 
+// Single email verification endpoint
+app.get("/api/verify-single", async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  if (!API_KEY || API_KEY === "YOUR_API_KEY_HERE") {
+    return res.status(500).json({ error: "API key not configured. Please set APILAYER_API_KEY in .env" });
+  }
+
+  try {
+    const result = await verifyEmail(email);
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Server-Sent Events endpoint for real-time verification
 app.get("/api/verify-stream", async (req, res) => {
   const { firstName, lastName, domain } = req.query;
