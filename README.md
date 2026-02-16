@@ -4,6 +4,7 @@ A smart email verification tool that discovers and validates probable email addr
 
 ## Features
 
+- **Two Modes** - Switch between "Find Variations" and "Single Email" verification
 - **Real-time Streaming** - See results instantly as each verification completes
 - **Tiered Verification** - Saves API costs by checking most common formats first
 - **Smart Early Stopping** - Stops verification once deliverable emails are found
@@ -61,15 +62,25 @@ npm start
 
 ## Usage
 
-1. Enter the person's first name, last name, and company domain (accepts full URLs - automatically extracts domain)
-2. Click "Verify Email Variations"
-3. Watch in real-time as:
+### Find Variations Mode
+
+1. Select the "Find Variations" tab
+2. Enter the person's first name, last name, and company domain (accepts full URLs - automatically extracts domain)
+3. Click "Verify Email Variations"
+4. Watch in real-time as:
    - All variations appear instantly with "Verifying" status
    - Each email updates to show results as verification completes
    - Progress counter updates live
    - Tier completion messages appear
-4. The system checks tier by tier, stopping early when deliverable emails are found
-5. See exactly how many API calls were used and saved
+5. The system checks tier by tier, stopping early when deliverable emails are found
+6. See exactly how many API calls were used and saved
+
+### Single Email Mode
+
+1. Select the "Single Email" tab
+2. Enter any complete email address (e.g., `john.doe@acme.com`)
+3. Click "Verify Email"
+4. See instant verification results with all API details
 
 ### Real-time Updates
 

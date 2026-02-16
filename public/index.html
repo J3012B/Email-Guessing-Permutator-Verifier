@@ -300,6 +300,47 @@
     .check-btn:hover { background: var(--accent-hover); }
     .check-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    .mode-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      background: var(--surface);
+      padding: 6px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+
+    .mode-tab {
+      flex: 1;
+      padding: 10px 16px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mode-tab:hover {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .mode-tab.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .form-mode {
+      display: none;
+    }
+
+    .form-mode.active {
+      display: block;
+    }
+
     .score {
       font-size: 0.85rem;
       font-weight: 600;
@@ -336,24 +377,43 @@
   <div class="container">
     <header>
       <h1>Outreach Email Verifier</h1>
-      <p>Enter a name and company domain to discover and verify probable email addresses.</p>
+      <p>Discover and verify email addresses with confidence.</p>
     </header>
 
+    <div class="mode-tabs">
+      <button type="button" class="mode-tab active" id="variationsTab">Find Variations</button>
+      <button type="button" class="mode-tab" id="singleTab">Single Email</button>
+    </div>
+
     <form class="card" id="form">
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="firstName">First Name</label>
-          <input type="text" id="firstName" placeholder="Jane" required />
+      <!-- Variations Mode -->
+      <div class="form-mode active" id="variationsMode">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="firstName">First Name</label>
+            <input type="text" id="firstName" placeholder="Jane" />
+          </div>
+          <div class="form-group">
+            <label for="lastName">Last Name</label>
+            <input type="text" id="lastName" placeholder="Smith" />
+          </div>
+          <div class="form-group full">
+            <label for="domain">Domain</label>
+            <input type="text" id="domain" placeholder="acme.com" />
+          </div>
+          <button class="btn" type="submit" id="submitBtn">Verify Email Variations</button>
         </div>
-        <div class="form-group">
-          <label for="lastName">Last Name</label>
-          <input type="text" id="lastName" placeholder="Smith" required />
+      </div>
+
+      <!-- Single Email Mode -->
+      <div class="form-mode" id="singleMode">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label for="singleEmail">Email Address</label>
+            <input type="email" id="singleEmail" placeholder="jane.smith@acme.com" />
+          </div>
+          <button class="btn" type="submit" id="singleSubmitBtn">Verify Email</button>
         </div>
-        <div class="form-group full">
-          <label for="domain">Domain</label>
-          <input type="text" id="domain" placeholder="acme.com" required />
-        </div>
-        <button class="btn" type="submit" id="submitBtn">Verify Email Variations</button>
       </div>
     </form>
 
@@ -378,9 +438,115 @@
     let results = {};
     let totalApiCalls = 0;
     let deliverableCount = 0;
+    let currentMode = 'variations';
+
+    function switchMode(mode) {
+      currentMode = mode;
+      
+      // Update tabs
+      const variationsTab = document.getElementById('variationsTab');
+      const singleTab = document.getElementById('singleTab');
+      
+      if (variationsTab && singleTab) {
+        variationsTab.classList.toggle('active', mode === 'variations');
+        singleTab.classList.toggle('active', mode === 'single');
+      }
+      
+      // Update forms
+      const variationsMode = document.getElementById('variationsMode');
+      const singleMode = document.getElementById('singleMode');
+      
+      if (variationsMode && singleMode) {
+        variationsMode.classList.toggle('active', mode === 'variations');
+        singleMode.classList.toggle('active', mode === 'single');
+      }
+      
+      // Clear results
+      errorContainer.innerHTML = "";
+      resultsContainer.innerHTML = "";
+      statusBar.classList.remove("visible");
+    }
+
+    // Set up tab switching - wait for DOM to be ready
+    const variationsTab = document.getElementById('variationsTab');
+    const singleTab = document.getElementById('singleTab');
+    
+    if (variationsTab) {
+      variationsTab.addEventListener('click', () => switchMode('variations'));
+    }
+    
+    if (singleTab) {
+      singleTab.addEventListener('click', () => switchMode('single'));
+    }
+
+    // Set up event delegation for check buttons
+    if (resultsContainer) {
+      resultsContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('check-btn')) {
+          const email = e.target.getAttribute('data-check-email');
+          if (email) {
+            checkSingleEmail(email);
+          }
+        }
+      });
+    }
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+
+      if (currentMode === 'single') {
+        handleSingleEmailSubmit();
+      } else {
+        handleVariationsSubmit();
+      }
+    });
+
+    async function handleSingleEmailSubmit() {
+      errorContainer.innerHTML = "";
+      resultsContainer.innerHTML = "";
+      
+      const email = document.getElementById("singleEmail").value.trim();
+      
+      if (!email) return;
+
+      const singleSubmitBtn = document.getElementById("singleSubmitBtn");
+      singleSubmitBtn.disabled = true;
+      singleSubmitBtn.textContent = "Verifying...";
+      statusBar.classList.add("visible");
+      statusText.textContent = "Verifying email...";
+
+      try {
+        const res = await fetch(`/api/verify-single?email=${encodeURIComponent(email)}`, {
+          method: "GET"
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Verification failed");
+        }
+
+        statusBar.classList.remove("visible");
+        
+        // Display single result
+        const result = { email, tier: 0, ...data };
+        results = { [email]: result };
+        totalApiCalls = 1;
+        deliverableCount = data.is_deliverable ? 1 : 0;
+        
+        initializeResults([{ email, tier: 0 }]);
+        updateResult(result);
+        
+      } catch (err) {
+        statusBar.classList.remove("visible");
+        errorContainer.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+      } finally {
+        singleSubmitBtn.disabled = false;
+        singleSubmitBtn.textContent = "Verify Email";
+      }
+    }
+
+    async function handleVariationsSubmit() {
       
       // Close any existing connection
       if (currentEventSource) {
@@ -497,7 +663,7 @@
         submitBtn.disabled = false;
         submitBtn.textContent = "Verify Email Variations";
       };
-    });
+    }
 
     function initializeResults(variations) {
       const header = `
@@ -638,7 +804,8 @@
     }
 
     function createResultRow(email, tier, data) {
-      const tierBadge = `<span class="badge tier">Tier ${tier}</span>`;
+      // Only show tier badge for variations mode (tier > 0)
+      const tierBadge = tier > 0 ? `<span class="badge tier">Tier ${tier}</span>` : '';
       const emailAttr = `data-email="${escapeHtml(email)}"`;
       const tooltip = createTooltip(data);
 
@@ -662,7 +829,7 @@
             <span class="result-email">${escapeHtml(email)}</span>
             ${tierBadge}
             <span class="badge skipped">Not Checked</span>
-            <button class="check-btn" onclick="checkSingleEmail('${escapeHtml(email)}')">Check</button>
+            <button class="check-btn" data-check-email="${escapeHtml(email)}">Check</button>
           </div>`;
       }
 
