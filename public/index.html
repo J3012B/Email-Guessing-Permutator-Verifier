@@ -175,6 +175,7 @@
     }
 
     .result-row {
+      position: relative;
       display: grid;
       grid-template-columns: 1fr auto auto auto;
       align-items: center;
@@ -184,9 +185,79 @@
       border: 1px solid var(--border);
       border-radius: 10px;
       transition: background 0.15s;
+      cursor: help;
     }
 
     .result-row:hover { background: var(--surface-hover); }
+
+    .result-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      min-width: 320px;
+      max-width: 480px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 1000;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    .result-row:hover .result-tooltip {
+      opacity: 1;
+    }
+
+    .result-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: var(--border);
+    }
+
+    .tooltip-title {
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tooltip-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.75rem;
+    }
+
+    .tooltip-key {
+      color: var(--text-muted);
+      margin-right: 12px;
+    }
+
+    .tooltip-value {
+      color: var(--text);
+      text-align: right;
+      word-break: break-word;
+    }
+
+    .tooltip-value.true { color: var(--green); }
+    .tooltip-value.false { color: var(--red); }
+    .tooltip-value.null { color: var(--text-muted); font-style: italic; }
+    .tooltip-value.error { color: var(--red); }
 
     .result-email {
       font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
@@ -438,13 +509,94 @@
       }
     }
 
+    function createTooltip(data) {
+      if (data.status === "pending") {
+        return `<div class="result-tooltip">
+          <div class="tooltip-title">Pending Verification</div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Status:</span>
+            <span class="tooltip-value">Waiting for API response...</span>
+          </div>
+        </div>`;
+      }
+
+      if (data.error) {
+        return `<div class="result-tooltip">
+          <div class="tooltip-title">Error Details</div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Error:</span>
+            <span class="tooltip-value error">${escapeHtml(data.error)}</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Email:</span>
+            <span class="tooltip-value">${escapeHtml(data.email)}</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-key">Tier:</span>
+            <span class="tooltip-value">${data.tier}</span>
+          </div>
+        </div>`;
+      }
+
+      // Success response - show all API fields
+      const fields = [
+        { key: 'email', label: 'Email' },
+        { key: 'is_deliverable', label: 'Deliverable' },
+        { key: 'score', label: 'Score', format: (v) => v != null ? (v * 100).toFixed(1) + '%' : 'N/A' },
+        { key: 'syntax_valid', label: 'Valid Syntax' },
+        { key: 'can_connect_smtp', label: 'SMTP Connection' },
+        { key: 'mx_records', label: 'MX Records' },
+        { key: 'is_catch_all', label: 'Catch-all' },
+        { key: 'is_disposable', label: 'Disposable' },
+        { key: 'is_role_account', label: 'Role Account' },
+        { key: 'is_disabled', label: 'Disabled' },
+        { key: 'is_inbox_full', label: 'Inbox Full' },
+        { key: 'free', label: 'Free Provider' },
+        { key: 'domain', label: 'Domain' },
+        { key: 'user', label: 'User' },
+        { key: 'did_you_mean', label: 'Did You Mean' }
+      ];
+
+      const rows = fields.map(field => {
+        const value = data[field.key];
+        const displayValue = field.format ? field.format(value) : value;
+        
+        let valueClass = '';
+        if (typeof displayValue === 'boolean') {
+          valueClass = displayValue ? 'true' : 'false';
+        } else if (displayValue === null || displayValue === '') {
+          valueClass = 'null';
+        }
+
+        const displayText = displayValue === null || displayValue === '' 
+          ? 'null' 
+          : displayValue === true 
+            ? 'true' 
+            : displayValue === false 
+              ? 'false' 
+              : escapeHtml(String(displayValue));
+
+        return `<div class="tooltip-row">
+          <span class="tooltip-key">${field.label}:</span>
+          <span class="tooltip-value ${valueClass}">${displayText}</span>
+        </div>`;
+      }).join('');
+
+      return `<div class="result-tooltip">
+        <div class="tooltip-title">API Response Details</div>
+        ${rows}
+      </div>`;
+    }
+
     function createResultRow(email, tier, data) {
       const tierBadge = `<span class="badge tier">Tier ${tier}</span>`;
       const emailAttr = `data-email="${escapeHtml(email)}"`;
+      const tooltip = createTooltip(data);
 
       if (data.status === "pending") {
         return `
           <div class="result-row" ${emailAttr}>
+            ${tooltip}
             <span class="result-email">${escapeHtml(email)}</span>
             ${tierBadge}
             <span class="badge pending">Verifying</span>
@@ -457,6 +609,7 @@
       if (data.error) {
         return `
           <div class="result-row" ${emailAttr}>
+            ${tooltip}
             <span class="result-email">${escapeHtml(email)}</span>
             ${tierBadge}
             <span class="badge error">Error</span>
@@ -471,6 +624,7 @@
 
       return `
         <div class="result-row" ${emailAttr}>
+          ${tooltip}
           <span class="result-email">${escapeHtml(email)}</span>
           ${tierBadge}
           <span class="badge ${badgeClass}">${badgeLabel}</span>
